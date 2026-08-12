@@ -244,6 +244,18 @@ input[type=file]{display:none;}
 .mini-photo img{width:100%;height:100%;object-fit:cover;}
 .mini-name{font-size:10.5px;color:var(--parchment-dim);margin-top:4px;text-align:center;line-height:1.2;}
 
+.profile-details{margin-top:14px;text-align:left;}
+.profile-details summary{
+  cursor:pointer;list-style:none;
+  font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--parchment-dim);font-family:'IBM Plex Mono',monospace;
+  display:flex;align-items:center;gap:7px;
+}
+.profile-details summary::-webkit-details-marker{display:none;}
+.profile-details summary::before{content:'▸';color:var(--gold-dim);display:inline-block;transition:transform .15s ease;}
+.profile-details[open] summary::before{transform:rotate(90deg);}
+.profile-details .profile-children-list{margin-top:10px;}
+
 /* Line click menu */
 .rel-menu{
   position:fixed;z-index:60;
@@ -346,6 +358,7 @@ input[type=file]{display:none;}
     <div class="profile-age" id="profileAge"></div>
     <div class="profile-children" id="profileSpouse"></div>
     <div class="profile-children" id="profileChildren"></div>
+    <div id="profileDescendants"></div>
     <button class="btn secondary" style="margin-top:20px;width:100%;background:transparent;color:var(--parchment-dim);border:1px solid rgba(241,233,211,.2);padding:10px 18px;border-radius:999px;font-weight:600;font-size:14px;cursor:pointer;" onclick="closeProfile()">Fechar</button>
   </div>
 </div>
@@ -377,6 +390,7 @@ input[type=file]{display:none;}
         <li><strong>Laterais</strong> — arraste até outra pessoa para uni-los como cônjuges.</li>
       </ul>
       <p><strong>Filhos de um casal:</strong> arraste a partir da bolinha dourada entre os dois cônjuges até o filho — conecta aos dois pais de uma vez.</p>
+      <p><strong>Retrair/expandir ramo:</strong> clique (sem arrastar) na bolinha do casal ou na linha que desce para os filhos para esconder todo mundo abaixo. Aparece uma bolinha com o número de pessoas escondidas — clique nela de novo para trazer de volta.</p>
       <p><strong>Perfil:</strong> clique (sem arrastar) em uma pessoa para ver nome, idade e filhos. Use o lápis no perfil para editar.</p>
       <p><strong>Remover ligação:</strong> clique em qualquer linha de conexão de pais/filhos.</p>
       <p><strong>Casal:</strong> clique na linha entre um casal para marcar como separados (linha tracejada) ou casados novamente, além de poder remover a ligação.</p>
@@ -396,7 +410,7 @@ input[type=file]{display:none;}
 </div>
 
 <script>
-let state = { familyName: "Minha Árvore Genealógica", people: [], spouseStatus: {} };
+let state = { familyName: "Minha Árvore Genealógica", people: [], spouseStatus: {}, collapsedCouples: {} };
 let editingId = null;
 let profileId = null;
 let pendingPhoto = null;
@@ -433,6 +447,7 @@ async function loadState(){
       state.familyName = data.family_name || "Minha Árvore Genealógica";
       state.people = data.people || [];
       state.spouseStatus = data.spouse_status || {};
+      state.collapsedCouples = data.collapsed_couples || {};
       document.getElementById('familyName').value = state.familyName;
     }
   }catch(e){
@@ -446,6 +461,7 @@ async function loadState(){
     if(!p.spouseIds) p.spouseIds = [];
   });
   if(!state.spouseStatus) state.spouseStatus = {};
+  if(!state.collapsedCouples) state.collapsedCouples = {};
   fillMissingGenerations();
   render();
   subscribeRealtime();
@@ -462,6 +478,7 @@ async function saveState(){
           family_name: state.familyName,
           people: state.people,
           spouse_status: state.spouseStatus,
+          collapsed_couples: state.collapsedCouples,
           updated_at: new Date().toISOString()
         })
         .eq('id', TREE_ROW_ID);
@@ -488,6 +505,7 @@ function subscribeRealtime(){
       state.familyName = row.family_name || state.familyName;
       state.people = row.people || [];
       state.spouseStatus = row.spouse_status || {};
+      state.collapsedCouples = row.collapsed_couples || {};
       state.people.forEach((p,i)=>{
         if(typeof p.x !== 'number') p.x = 300 + i*170;
         if(typeof p.y !== 'number') p.y = SECTION_Y0;
@@ -541,6 +559,7 @@ function importBackup(file){
         if(!p.spouseIds) p.spouseIds = [];
       });
       if(!state.spouseStatus) state.spouseStatus = {};
+      if(!state.collapsedCouples) state.collapsedCouples = {};
       fillMissingGenerations();
       document.getElementById('familyName').value = state.familyName || 'Minha Árvore Genealógica';
       saveState();
@@ -678,7 +697,7 @@ document.getElementById('fPhoto').addEventListener('change', (e)=>{
           pendingPhoto = publicUrl;
         }catch(err){
           console.error('Falha ao subir foto para o Supabase Storage:', err);
-          showAlert('Não foi possível enviar a foto para o Supabase (verifique se o bucket "photos" existe e é público).');
+          showAlert('Não foi possível enviar a foto para o Supabase (verifique se o bucket "family-tree-photos" existe e é público).');
         }finally{
           isUploadingPhoto = false;
         }
@@ -729,6 +748,74 @@ function getDescendants(id){
     });
   }
   return result;
+}
+
+// Returns an array of levels below a person: [children, grandchildren, great-grandchildren, ...]
+function getDescendantLevels(id, maxDepth){
+  const levels = [];
+  let current = [id];
+  for(let d=0; d<maxDepth; d++){
+    const next = [];
+    current.forEach(pid=>{
+      state.people.forEach(p=>{
+        if(p.parentIds.includes(pid) && !next.includes(p.id)) next.push(p.id);
+      });
+    });
+    if(!next.length) break;
+    levels.push(next.map(pid=>findPerson(pid)).filter(Boolean));
+    current = next;
+  }
+  return levels;
+}
+
+// Follows both "children" and "spouse" edges downward — used for hiding a
+// collapsed branch, since a descendant's spouse should disappear with them
+// even if that spouse has no parents registered of their own.
+function getBranchClosure(startIds){
+  const result = new Set();
+  const queue = [...startIds];
+  while(queue.length){
+    const current = queue.shift();
+    if(result.has(current)) continue;
+    result.add(current);
+    const person = findPerson(current);
+    if(!person) continue;
+    (person.spouseIds || []).forEach(sid=>{
+      if(!result.has(sid)) queue.push(sid);
+    });
+    state.people.forEach(p=>{
+      if(p.parentIds.includes(current) && !result.has(p.id)) queue.push(p.id);
+    });
+  }
+  return result;
+}
+
+function countBranchDescendants(childrenIds){
+  return getBranchClosure(childrenIds).size;
+}
+
+function getHiddenIds(){
+  const hidden = new Set();
+  const collapsed = state.collapsedCouples || {};
+  Object.keys(collapsed).forEach(key=>{
+    if(!collapsed[key]) return;
+    const [aId, bId] = key.split('|');
+    const directChildren = state.people
+      .filter(p=>p.parentIds.includes(aId) && p.parentIds.includes(bId))
+      .map(p=>p.id);
+    getBranchClosure(directChildren).forEach(id=>hidden.add(id));
+  });
+  return hidden;
+}
+
+function toggleCoupleCollapse(idA, idB){
+  if(!state.collapsedCouples) state.collapsedCouples = {};
+  const key = spouseKey(idA, idB);
+  if(state.collapsedCouples[key]) delete state.collapsedCouples[key];
+  else state.collapsedCouples[key] = true;
+  layoutTree();
+  saveState();
+  render();
 }
 
 function deleteCurrentPerson(){
@@ -825,6 +912,28 @@ function openProfile(id){
     childrenEl.innerHTML = `<div class="profile-section-label">Sem filhos registrados</div>`;
   }
 
+  const levels = getDescendantLevels(id, 4); // [filhos, netos, bisnetos, trisnetos]
+  const descLabels = [null, ['neto','netos'], ['bisneto','bisnetos'], ['trisneto','trisnetos']];
+  let descHtml = '';
+  for(let d=1; d<=3; d++){
+    const group = levels[d];
+    if(group && group.length){
+      const [sing, plur] = descLabels[d];
+      descHtml += `<details class="profile-details">
+        <summary>${group.length} ${group.length===1?sing:plur}</summary>
+        <div class="profile-children-list">
+          ${group.map(c=>`
+            <div class="mini-person" onclick="openProfile('${c.id}')">
+              <div class="mini-photo">${c.photo ? `<img src="${c.photo}" draggable="false">` : (c.name ? c.name[0].toUpperCase() : '?')}</div>
+              <div class="mini-name">${escapeHtml(c.name)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </details>`;
+    }
+  }
+  document.getElementById('profileDescendants').innerHTML = descHtml;
+
   document.getElementById('profileOverlay').classList.add('open');
 }
 function closeProfile(){
@@ -903,6 +1012,75 @@ function declutterX(){
   });
 }
 
+// Recursive bottom-up tree layout: recurses all the way down each branch
+// first (grouping every couple's children together, contiguously), then
+// centers each couple above the midpoint of their own already-laid-out
+// children on the way back up. This is what keeps sibling branches from
+// interleaving and crossing each other. Used when a branch is expanded/
+// collapsed, since hidden nodes can leave stale, colliding positions behind.
+function layoutTree(){
+  const hiddenIds = getHiddenIds();
+  const processed = new Set();
+  let cursorX = 200;
+  const SPACING = 160;
+  const COUPLE_HALF = 85;
+
+  function unitChildren(personId, spouseId){
+    return state.people.filter(c=>{
+      if(hiddenIds.has(c.id)) return false;
+      if(c.parentIds.includes(personId)) return true;
+      if(spouseId && c.parentIds.includes(spouseId)) return true;
+      return false;
+    });
+  }
+
+  function layoutPerson(personId){
+    if(hiddenIds.has(personId) || processed.has(personId)){
+      const existing = findPerson(personId);
+      return existing ? existing.x : null;
+    }
+    const person = findPerson(personId);
+    if(!person) return null;
+    processed.add(personId);
+
+    const spouseId = (person.spouseIds || []).find(sid => !hiddenIds.has(sid) && !processed.has(sid));
+    const spouse = spouseId ? findPerson(spouseId) : null;
+    if(spouse) processed.add(spouseId);
+
+    const children = unitChildren(personId, spouseId).sort((a,b)=>a.x - b.x);
+
+    let centerX;
+    if(children.length){
+      const childCenters = children.map(c=>layoutPerson(c.id)).filter(x=>x!==null);
+      if(childCenters.length){
+        centerX = (Math.min(...childCenters) + Math.max(...childCenters)) / 2;
+      }
+    }
+    if(centerX === undefined){
+      centerX = cursorX;
+      cursorX += SPACING;
+    }
+
+    if(spouse){
+      person.x = centerX - COUPLE_HALF;
+      spouse.x = centerX + COUPLE_HALF;
+      cursorX = Math.max(cursorX, centerX + COUPLE_HALF + SPACING);
+    } else {
+      person.x = centerX;
+      cursorX = Math.max(cursorX, centerX + SPACING);
+    }
+    return centerX;
+  }
+
+  const roots = state.people
+    .filter(p => !hiddenIds.has(p.id) && p.parentIds.length === 0)
+    .sort((a,b)=>a.x - b.x);
+  roots.forEach(r=>{ if(!processed.has(r.id)) layoutPerson(r.id); });
+
+  // Safety net for anyone the traversal didn't reach (e.g. disconnected data).
+  declutterX();
+}
+
 function arrangeChildX(childId, anchorX, generation){
   let x = anchorX;
   let attempts = 0;
@@ -922,13 +1100,15 @@ function positionCard(card, p){
 
 function resizeCanvas(){
   const canvas = document.getElementById('canvas');
-  if(!state.people.length){
+  const hiddenIds = getHiddenIds();
+  const visible = state.people.filter(p=>!hiddenIds.has(p.id));
+  if(!visible.length){
     canvas.style.width = '2000px';
     canvas.style.height = '1400px';
     return;
   }
-  const maxX = Math.max(...state.people.map(p=>p.x)) + 300;
-  const maxY = Math.max(...state.people.map(p=>p.y)) + 260;
+  const maxX = Math.max(...visible.map(p=>p.x)) + 300;
+  const maxY = Math.max(...visible.map(p=>p.y)) + 260;
   canvas.style.width = Math.max(maxX, 1200) + 'px';
   canvas.style.height = Math.max(maxY, 900) + 'px';
 }
@@ -936,10 +1116,12 @@ function resizeCanvas(){
 function render(){
   const canvas = document.getElementById('canvas');
   canvas.querySelectorAll('.card').forEach(el=>el.remove());
+  const hiddenIds = getHiddenIds();
 
   document.getElementById('emptyMsg').style.display = state.people.length ? 'none' : 'flex';
 
   state.people.forEach(p=>{
+    if(hiddenIds.has(p.id)) return;
     const card = buildCard(p);
     positionCard(card, p);
     canvas.appendChild(card);
@@ -1151,7 +1333,11 @@ function applyCoupleChild(idA, idB, childId){
 function startCoupleDrag(e, idA, idB){
   e.preventDefault();
   e.stopPropagation();
+  const startX = e.clientX, startY = e.clientY;
+  let moved = false;
   const move = (ev)=>{
+    if(!moved && Math.hypot(ev.clientX-startX, ev.clientY-startY) > 6) moved = true;
+    if(!moved) return;
     const a = findPerson(idA), b = findPerson(idB);
     if(!a || !b) return;
     drawTempLineCoords((a.x+b.x)/2, (a.y+b.y)/2, ev.clientX, ev.clientY);
@@ -1162,6 +1348,10 @@ function startCoupleDrag(e, idA, idB){
     document.removeEventListener('pointerup', up);
     document.querySelectorAll('.photo.drop-target').forEach(el=>el.classList.remove('drop-target'));
     clearTempLine();
+    if(!moved){
+      toggleCoupleCollapse(idA, idB);
+      return;
+    }
     const targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
     const targetCard = targetEl ? targetEl.closest('.card') : null;
     if(targetCard){
@@ -1187,9 +1377,12 @@ function drawConnections(){
 
   const ns = 'http://www.w3.org/2000/svg';
   const drawnSpousePairs = new Set();
+  const hiddenIds = getHiddenIds();
 
   state.people.forEach(p=>{
+    if(hiddenIds.has(p.id)) return;
     (p.spouseIds||[]).forEach(sid=>{
+      if(hiddenIds.has(sid)) return;
       const key = [p.id,sid].sort().join('|');
       if(drawnSpousePairs.has(key)) return;
       drawnSpousePairs.add(key);
@@ -1237,8 +1430,7 @@ function drawConnections(){
       midHit.setAttribute('r', 15);
       midHit.setAttribute('fill', 'transparent');
       midHit.style.pointerEvents = 'auto';
-      midHit.style.cursor = 'grab';
-      midHit.addEventListener('click', (e)=>e.stopPropagation());
+      midHit.style.cursor = 'pointer';
       midHit.addEventListener('pointerdown', (e)=>startCoupleDrag(e, a.id, sid));
       g.appendChild(midHit);
     });
@@ -1255,12 +1447,62 @@ function drawConnections(){
     }
   });
 
-  Object.values(coupleChildMap).forEach(({pa, pb, children})=>{
+  Object.entries(coupleChildMap).forEach(([key, {pa, pb, children}])=>{
+    if(hiddenIds.has(pa.id) || hiddenIds.has(pb.id)) return;
     const startX = (pa.x+pb.x)/2, startY = (pa.y+pb.y)/2;
+    const isCollapsed = !!(state.collapsedCouples && state.collapsedCouples[key]);
+
+    if(isCollapsed){
+      const stubY = startY + 42;
+      const badgeR = 13;
+
+      const stub = document.createElementNS(ns,'path');
+      stub.setAttribute('class','link');
+      stub.setAttribute('d', `M ${startX} ${startY} L ${startX} ${stubY - badgeR}`);
+      stub.setAttribute('stroke', 'var(--line)');
+      stub.setAttribute('stroke-width', '2.5');
+      stub.setAttribute('stroke-dasharray', '4,4');
+      stub.setAttribute('fill', 'none');
+      stub.style.cursor = 'pointer';
+      stub.addEventListener('click', ()=>toggleCoupleCollapse(pa.id, pb.id));
+      svg.appendChild(stub);
+
+      const count = countBranchDescendants(children.map(c=>c.id));
+      const badge = document.createElementNS(ns,'circle');
+      badge.setAttribute('cx', startX); badge.setAttribute('cy', stubY);
+      badge.setAttribute('r', badgeR);
+      badge.setAttribute('fill', 'var(--panel-2)');
+      badge.setAttribute('stroke', 'var(--gold-dim)');
+      badge.setAttribute('stroke-width', '1.5');
+      badge.style.cursor = 'pointer';
+      badge.addEventListener('click', ()=>toggleCoupleCollapse(pa.id, pb.id));
+      svg.appendChild(badge);
+
+      const badgeText = document.createElementNS(ns,'text');
+      badgeText.setAttribute('x', startX); badgeText.setAttribute('y', stubY + 4);
+      badgeText.setAttribute('text-anchor', 'middle');
+      badgeText.setAttribute('fill', 'var(--gold)');
+      badgeText.setAttribute('font-size', '11');
+      badgeText.setAttribute('font-family', 'IBM Plex Mono, monospace');
+      badgeText.style.pointerEvents = 'none';
+      badgeText.textContent = '+' + count;
+      svg.appendChild(badgeText);
+      return;
+    }
+
     const childTop = children[0].y - PHOTO_R;
     const busY = childTop - 30;
     const xs = children.map(c=>c.x).concat([startX]);
     const left = Math.min(...xs), right = Math.max(...xs);
+
+    const trunkHit = document.createElementNS(ns,'path');
+    trunkHit.setAttribute('class','link');
+    trunkHit.setAttribute('d', `M ${startX} ${startY} L ${startX} ${busY}`);
+    trunkHit.setAttribute('stroke', 'transparent');
+    trunkHit.setAttribute('stroke-width', '14');
+    trunkHit.setAttribute('fill', 'none');
+    trunkHit.addEventListener('click', ()=>toggleCoupleCollapse(pa.id, pb.id));
+    svg.appendChild(trunkHit);
 
     const trunk = document.createElementNS(ns,'path');
     trunk.setAttribute('d', `M ${startX} ${startY} L ${startX} ${busY}`);
@@ -1304,6 +1546,7 @@ function drawConnections(){
   });
 
   state.people.forEach(p=>{
+    if(hiddenIds.has(p.id)) return;
     if(!p.parentIds || !p.parentIds.length) return;
 
     if(p.parentIds.length === 2){
@@ -1508,8 +1751,10 @@ scrollEl.addEventListener('wheel', (e)=>{
 const MM_W = 150, MM_H = 100;
 
 function computeBounds(){
-  if(!state.people.length) return { minX:0, minY:0, maxX:1200, maxY:900 };
-  const xs = state.people.map(p=>p.x), ys = state.people.map(p=>p.y);
+  const hiddenIds = getHiddenIds();
+  const visible = state.people.filter(p=>!hiddenIds.has(p.id));
+  if(!visible.length) return { minX:0, minY:0, maxX:1200, maxY:900 };
+  const xs = visible.map(p=>p.x), ys = visible.map(p=>p.y);
   return {
     minX: Math.min(...xs) - 150, maxX: Math.max(...xs) + 150,
     minY: Math.min(...ys) - 150, maxY: Math.max(...ys) + 250
@@ -1520,12 +1765,14 @@ function renderMinimap(){
   const mm = document.getElementById('minimap');
   if(!mm) return;
   mm.innerHTML = '';
+  const hiddenIds = getHiddenIds();
   const b = computeBounds();
   const w = b.maxX - b.minX, h = b.maxY - b.minY;
   const s = Math.min(MM_W/w, MM_H/h);
   const offX = (MM_W - w*s)/2, offY = (MM_H - h*s)/2;
 
   state.people.forEach(p=>{
+    if(hiddenIds.has(p.id)) return;
     const dot = document.createElement('div');
     dot.className = 'mm-dot';
     dot.style.left = (offX + (p.x - b.minX)*s) + 'px';
