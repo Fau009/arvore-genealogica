@@ -415,7 +415,7 @@ const SUPABASE_URL = "https://prtmpqalchbuquqvbtkm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_j6pFaLdagTndRvYPDA6c_A_RqpRsd2X";
 const TREE_ROW_ID = "main";
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let suppressRealtimeUntil = 0;
 
@@ -423,7 +423,7 @@ let suppressRealtimeUntil = 0;
 
 async function loadState(){
   try{
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from('family_tree_state')
       .select('*')
       .eq('id', TREE_ROW_ID)
@@ -456,7 +456,7 @@ async function saveState(){
   suppressRealtimeUntil = Date.now() + 4000;
   for(let i=0; i<=delays.length; i++){
     try{
-      const { error } = await supabase
+      const { error } = await sb
         .from('family_tree_state')
         .update({
           family_name: state.familyName,
@@ -480,7 +480,7 @@ async function saveState(){
 }
 
 function subscribeRealtime(){
-  supabase
+  sb
     .channel('family_tree_state_changes')
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'family_tree_state', filter: `id=eq.${TREE_ROW_ID}` }, (payload)=>{
       if(Date.now() < suppressRealtimeUntil) return; // likely our own save echoing back
@@ -502,12 +502,12 @@ function subscribeRealtime(){
 
 async function uploadPhotoBlob(blob){
   const fileName = `photo-${Date.now()}-${Math.random().toString(36).slice(2,8)}.jpg`;
-  const { error } = await supabase.storage.from('family-tree-photos').upload(fileName, blob, {
+  const { error } = await sb.storage.from('family-tree-photos').upload(fileName, blob, {
     contentType: 'image/jpeg',
     upsert: true
   });
   if(error) throw error;
-  const { data } = supabase.storage.from('family-tree-photos').getPublicUrl(fileName);
+  const { data } = sb.storage.from('family-tree-photos').getPublicUrl(fileName);
   return data.publicUrl;
 }
 
