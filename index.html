@@ -480,6 +480,7 @@ async function loadState(){
   if(!state.spouseStatus) state.spouseStatus = {};
   if(!state.collapsedCouples) state.collapsedCouples = {};
   fillMissingGenerations();
+  layoutTree();
   render();
   subscribeRealtime();
 }
@@ -1107,8 +1108,21 @@ function layoutTree(){
     return centerX;
   }
 
+  // Only start a fresh traversal from true top-of-tree people. Someone with
+  // no parents but whose spouse DOES have parents (married into the family)
+  // must not become their own starting point — that pulls their whole
+  // family out of order with their spouse's real siblings. They'll be
+  // picked up naturally when we reach their spouse through the real
+  // ancestor line.
   const roots = state.people
-    .filter(p => !hiddenIds.has(p.id) && p.parentIds.length === 0)
+    .filter(p=>{
+      if(hiddenIds.has(p.id) || p.parentIds.length > 0) return false;
+      const spouseIsAnchored = (p.spouseIds || []).some(sid=>{
+        const sp = findPerson(sid);
+        return sp && !hiddenIds.has(sid) && sp.parentIds.length > 0;
+      });
+      return !spouseIsAnchored;
+    })
     .sort((a,b)=>a.x - b.x);
   roots.forEach(r=>{ if(!processed.has(r.id)) layoutPerson(r.id); });
 
@@ -1364,18 +1378,15 @@ function applyHandleRelation(sourceId, targetId, type){
   if(type === 'child'){
     if(!source.parentIds.includes(targetId)) source.parentIds.push(targetId);
     setLevel(source, target.generation + 1);
-    source.x = arrangeChildX(sourceId, target.x, source.generation);
   } else if(type === 'parent'){
     if(!target.parentIds.includes(sourceId)) target.parentIds.push(sourceId);
     setLevel(target, source.generation + 1);
-    target.x = arrangeChildX(targetId, source.x, target.generation);
   } else if(type === 'spouse'){
     if(!source.spouseIds.includes(targetId)) source.spouseIds.push(targetId);
     if(!target.spouseIds.includes(sourceId)) target.spouseIds.push(sourceId);
     setLevel(source, target.generation);
-    source.x = target.x + 170;
   }
-  declutterX();
+  layoutTree();
   saveState();
   render();
 }
@@ -1388,8 +1399,7 @@ function applyCoupleChild(idA, idB, childId){
     if(!child.parentIds.includes(pid)) child.parentIds.push(pid);
   });
   setLevel(child, Math.max(a.generation, b.generation) + 1);
-  child.x = arrangeChildX(childId, (a.x+b.x)/2, child.generation);
-  declutterX();
+  layoutTree();
   saveState();
   render();
 }
