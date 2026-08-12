@@ -69,6 +69,7 @@ header{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;align-items:
 .tree-canvas{position:absolute;top:0;left:0;transform-origin:0 0;}
 svg#connections{position:absolute;top:0;left:0;pointer-events:none;}
 svg#connections .link{pointer-events:stroke;cursor:pointer;}
+body:not(.edit-mode) svg#connections .link{cursor:grab;}
 svg#connections .couple-visible{transition:r .12s ease, fill .12s ease;}
 svg#connections .couple-group.drop-target .couple-visible{r:9;fill:var(--parchment);}
 
@@ -163,6 +164,11 @@ svg#connections .couple-group.drop-target .couple-visible{r:9;fill:var(--parchme
 .fab:hover{opacity:1;transform:translateY(-2px);background:var(--panel);color:var(--parchment);}
 .fab-primary{background:var(--gold);color:var(--ink);border:none;opacity:.85;font-size:18px;}
 .fab-primary:hover{opacity:1;background:var(--gold);color:var(--ink);}
+.fab.active{background:var(--gold);color:var(--ink);opacity:1;}
+
+body.edit-mode .photo{cursor:grab;}
+body:not(.edit-mode) .photo{cursor:pointer;}
+body:not(.edit-mode) .couple-dot{cursor:pointer;}
 
 /* ---------- Modals ---------- */
 
@@ -302,6 +308,7 @@ input[type=file]{display:none;}
   </div>
 
   <div class="board-toolbar">
+    <button class="fab" id="editModeBtn" title="Modo de edição">✎</button>
     <button class="fab" id="helpBtn" title="Ajuda">?</button>
     <button class="fab" id="clearBtn" title="Limpar tudo">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -382,7 +389,8 @@ input[type=file]{display:none;}
   <div class="modal" style="max-width:440px;">
     <h3>Como usar a árvore</h3>
     <div class="help-content">
-      <p><strong>Mover uma pessoa:</strong> arraste o círculo da foto para reposicionar no quadro.</p>
+      <p><strong>Modo de edição:</strong> o lápis no canto liga/desliga a edição da árvore. Desligado (padrão), arrastar em qualquer lugar só navega pelo quadro — nada se move ou desconecta sem querer, ótimo para o celular. Ligado, você pode arrastar pessoas, criar e remover ligações.</p>
+      <p><strong>Mover uma pessoa:</strong> com o modo de edição ligado, arraste o círculo da foto para reposicionar no quadro.</p>
       <p><strong>Ligar pessoas:</strong> cada pessoa tem 4 pontinhos ao redor da foto.</p>
       <ul>
         <li><strong>Topo</strong> — arraste até outra pessoa (ou até a bolinha de um casal) para indicar que ela é filho(a) dessa pessoa ou casal.</li>
@@ -643,6 +651,17 @@ function closeHelp(){ document.getElementById('helpOverlay').classList.remove('o
 document.getElementById('addBtn').addEventListener('click', openAddModal);
 document.getElementById('clearBtn').addEventListener('click', clearAllConfirm);
 
+/* ---------- Edit mode ---------- */
+
+let editMode = false;
+function setEditMode(on){
+  editMode = on;
+  document.getElementById('editModeBtn').classList.toggle('active', editMode);
+  document.body.classList.toggle('edit-mode', editMode);
+  render();
+}
+document.getElementById('editModeBtn').addEventListener('click', ()=>setEditMode(!editMode));
+
 /* ---------- Add / Edit modal ---------- */
 
 function openAddModal(){
@@ -725,7 +744,7 @@ function savePerson(){
     const viewCenterY = (rect.height/2 - panY) / scale;
     const generation = Math.max(0, Math.round((viewCenterY - SECTION_Y0) / SECTION_H));
     const newId = uid();
-    const newX = arrangeChildX(newId, viewCenterX, generation);
+    const newX = findNearbySpot(viewCenterX, sectionY(generation));
     state.people.push({
       id: newId, name, birth, death,
       photo: pendingPhoto,
@@ -1095,6 +1114,23 @@ function arrangeChildX(childId, anchorX, generation){
   return x;
 }
 
+// Finds the closest free spot to (anchorX, anchorY) — tries a bit to the
+// right, then a bit to the left, alternating and widening, so a new person
+// lands as near as possible to where you're looking instead of always
+// drifting off to one side.
+function findNearbySpot(anchorX, anchorY){
+  const MIN_DIST = 150;
+  const STEP = 160;
+  const isFree = (x)=> !state.people.some(p=>Math.abs(p.x - x) < MIN_DIST && Math.abs(p.y - anchorY) < MIN_DIST);
+
+  if(isFree(anchorX)) return anchorX;
+  for(let offset=STEP; offset<STEP*20; offset+=STEP){
+    if(isFree(anchorX + offset)) return anchorX + offset;
+    if(isFree(anchorX - offset)) return anchorX - offset;
+  }
+  return anchorX;
+}
+
 /* ---------- Render ---------- */
 
 function positionCard(card, p){
@@ -1145,22 +1181,26 @@ function buildCard(p){
   card.innerHTML = `
     <div class="photo-wrap">
       <div class="photo">${p.photo ? `<img src="${p.photo}" draggable="false">` : (p.name ? p.name[0].toUpperCase() : '?')}</div>
-      <div class="handle handle-top" title="Arraste: é filho(a) de..."></div>
-      <div class="handle handle-left" title="Arraste: cônjuge"></div>
-      <div class="handle handle-right" title="Arraste: cônjuge"></div>
+      ${editMode ? `
+        <div class="handle handle-top" title="Arraste: é filho(a) de..."></div>
+        <div class="handle handle-left" title="Arraste: cônjuge"></div>
+        <div class="handle handle-right" title="Arraste: cônjuge"></div>
+      ` : ''}
     </div>
     <div class="label">
       <div class="name">${escapeHtml(p.name)}</div>
       ${years ? `<div class="years">${escapeHtml(years)}</div>` : ''}
     </div>
-    <div class="handle handle-bottom" title="Arraste: é pai/mãe de..."></div>
+    ${editMode ? `<div class="handle handle-bottom" title="Arraste: é pai/mãe de..."></div>` : ''}
   `;
 
   attachCardDrag(card, p.id);
-  attachHandleDrag(card.querySelector('.handle-top'), p.id, 'top');
-  attachHandleDrag(card.querySelector('.handle-bottom'), p.id, 'bottom');
-  attachHandleDrag(card.querySelector('.handle-left'), p.id, 'side');
-  attachHandleDrag(card.querySelector('.handle-right'), p.id, 'side');
+  if(editMode){
+    attachHandleDrag(card.querySelector('.handle-top'), p.id, 'top');
+    attachHandleDrag(card.querySelector('.handle-bottom'), p.id, 'bottom');
+    attachHandleDrag(card.querySelector('.handle-left'), p.id, 'side');
+    attachHandleDrag(card.querySelector('.handle-right'), p.id, 'side');
+  }
 
   return card;
 }
@@ -1172,6 +1212,7 @@ function attachCardDrag(card, id){
   let drag = null;
 
   photo.addEventListener('pointerdown', (e)=>{
+    if(!editMode) return; // let it bubble up so the board pans instead
     e.preventDefault();
     e.stopPropagation();
     const p = findPerson(id);
@@ -1180,7 +1221,7 @@ function attachCardDrag(card, id){
   });
 
   photo.addEventListener('pointermove', (e)=>{
-    if(!drag) return;
+    if(!editMode || !drag) return;
     const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
     if(!drag.dragging && Math.hypot(dx,dy) > 8){
       drag.dragging = true;
@@ -1196,7 +1237,7 @@ function attachCardDrag(card, id){
   });
 
   photo.addEventListener('pointerup', (e)=>{
-    if(!drag) return;
+    if(!editMode || !drag) return;
     if(drag.dragging){
       card.classList.remove('dragging');
       const p = findPerson(id);
@@ -1209,6 +1250,13 @@ function attachCardDrag(card, id){
       openProfile(id);
     }
     drag = null;
+  });
+
+  // Tap-to-open-profile that works outside edit mode too, without blocking
+  // board panning: a real drag gesture naturally never fires a click.
+  photo.addEventListener('click', ()=>{
+    if(editMode) return;
+    openProfile(id);
   });
 }
 
@@ -1400,7 +1448,10 @@ function drawConnections(){
       line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
       line.setAttribute('stroke-width', '10');
       line.style.stroke = 'transparent';
-      line.addEventListener('click', (e)=>openSpouseLineMenu(a.id, sid, e.clientX, e.clientY));
+      line.addEventListener('click', (e)=>{
+        if(!editMode) return;
+        openSpouseLineMenu(a.id, sid, e.clientX, e.clientY);
+      });
       g.appendChild(line);
 
       const visible = document.createElementNS(ns,'line');
@@ -1428,7 +1479,10 @@ function drawConnections(){
       midHit.style.pointerEvents = 'auto';
       midHit.style.cursor = 'grab';
       midHit.addEventListener('click', (e)=>e.stopPropagation());
-      midHit.addEventListener('pointerdown', (e)=>startCoupleDrag(e, a.id, sid));
+      midHit.addEventListener('pointerdown', (e)=>{
+        if(!editMode) return; // let it bubble up so the board pans instead
+        startCoupleDrag(e, a.id, sid);
+      });
       g.appendChild(midHit);
     });
   });
@@ -1493,7 +1547,10 @@ function drawConnections(){
         hit.setAttribute('fill','none');
         hit.setAttribute('stroke','transparent');
         hit.setAttribute('stroke-width','14');
-        hit.addEventListener('click', ()=>removeCoupleChildLink(pa.id, pb.id, c.id));
+        hit.addEventListener('click', ()=>{
+          if(!editMode) return;
+          removeCoupleChildLink(pa.id, pb.id, c.id);
+        });
         svg.appendChild(hit);
 
         const vis = document.createElementNS(ns,'path');
@@ -1565,7 +1622,10 @@ function drawConnections(){
       hit.setAttribute('fill','none');
       hit.setAttribute('stroke','transparent');
       hit.setAttribute('stroke-width','14');
-      hit.addEventListener('click', ()=>removeParentLink(parentId, p.id));
+      hit.addEventListener('click', ()=>{
+        if(!editMode) return;
+        removeParentLink(parentId, p.id);
+      });
       svg.appendChild(hit);
 
       const path = document.createElementNS(ns,'path');
@@ -1676,7 +1736,8 @@ function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function mid(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
 
 scrollEl.addEventListener('pointerdown', (e)=>{
-  if(e.target.closest('.card, .link, .couple-dot, .minimap')) return;
+  if(e.target.closest('.minimap')) return;
+  if(editMode && e.target.closest('.card, .link, .couple-dot')) return;
   activePointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
   if(activePointers.size === 1){
