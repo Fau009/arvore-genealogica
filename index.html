@@ -1333,11 +1333,7 @@ function applyCoupleChild(idA, idB, childId){
 function startCoupleDrag(e, idA, idB){
   e.preventDefault();
   e.stopPropagation();
-  const startX = e.clientX, startY = e.clientY;
-  let moved = false;
   const move = (ev)=>{
-    if(!moved && Math.hypot(ev.clientX-startX, ev.clientY-startY) > 6) moved = true;
-    if(!moved) return;
     const a = findPerson(idA), b = findPerson(idB);
     if(!a || !b) return;
     drawTempLineCoords((a.x+b.x)/2, (a.y+b.y)/2, ev.clientX, ev.clientY);
@@ -1348,10 +1344,6 @@ function startCoupleDrag(e, idA, idB){
     document.removeEventListener('pointerup', up);
     document.querySelectorAll('.photo.drop-target').forEach(el=>el.classList.remove('drop-target'));
     clearTempLine();
-    if(!moved){
-      toggleCoupleCollapse(idA, idB);
-      return;
-    }
     const targetEl = document.elementFromPoint(ev.clientX, ev.clientY);
     const targetCard = targetEl ? targetEl.closest('.card') : null;
     if(targetCard){
@@ -1430,7 +1422,8 @@ function drawConnections(){
       midHit.setAttribute('r', 15);
       midHit.setAttribute('fill', 'transparent');
       midHit.style.pointerEvents = 'auto';
-      midHit.style.cursor = 'pointer';
+      midHit.style.cursor = 'grab';
+      midHit.addEventListener('click', (e)=>e.stopPropagation());
       midHit.addEventListener('pointerdown', (e)=>startCoupleDrag(e, a.id, sid));
       g.appendChild(midHit);
     });
@@ -1451,98 +1444,98 @@ function drawConnections(){
     if(hiddenIds.has(pa.id) || hiddenIds.has(pb.id)) return;
     const startX = (pa.x+pb.x)/2, startY = (pa.y+pb.y)/2;
     const isCollapsed = !!(state.collapsedCouples && state.collapsedCouples[key]);
+    const badgeY = startY + 42;
+    const badgeR = 13;
 
     if(isCollapsed){
-      const stubY = startY + 42;
-      const badgeR = 13;
-
       const stub = document.createElementNS(ns,'path');
-      stub.setAttribute('class','link');
-      stub.setAttribute('d', `M ${startX} ${startY} L ${startX} ${stubY - badgeR}`);
+      stub.setAttribute('d', `M ${startX} ${startY} L ${startX} ${badgeY - badgeR}`);
       stub.setAttribute('stroke', 'var(--line)');
       stub.setAttribute('stroke-width', '2.5');
       stub.setAttribute('stroke-dasharray', '4,4');
       stub.setAttribute('fill', 'none');
-      stub.style.cursor = 'pointer';
-      stub.addEventListener('click', ()=>toggleCoupleCollapse(pa.id, pb.id));
+      stub.style.pointerEvents = 'none';
       svg.appendChild(stub);
+    } else {
+      const childTop = children[0].y - PHOTO_R;
+      const busY = childTop - 30;
+      const xs = children.map(c=>c.x).concat([startX]);
+      const left = Math.min(...xs), right = Math.max(...xs);
 
-      const count = countBranchDescendants(children.map(c=>c.id));
-      const badge = document.createElementNS(ns,'circle');
-      badge.setAttribute('cx', startX); badge.setAttribute('cy', stubY);
-      badge.setAttribute('r', badgeR);
-      badge.setAttribute('fill', 'var(--panel-2)');
-      badge.setAttribute('stroke', 'var(--gold-dim)');
-      badge.setAttribute('stroke-width', '1.5');
-      badge.style.cursor = 'pointer';
-      badge.addEventListener('click', ()=>toggleCoupleCollapse(pa.id, pb.id));
-      svg.appendChild(badge);
+      const trunk = document.createElementNS(ns,'path');
+      trunk.setAttribute('d', `M ${startX} ${startY} L ${startX} ${busY}`);
+      trunk.setAttribute('stroke', 'var(--line)');
+      trunk.setAttribute('stroke-width', '2.5');
+      trunk.setAttribute('fill', 'none');
+      trunk.setAttribute('stroke-linecap', 'round');
+      trunk.style.pointerEvents = 'none';
+      svg.appendChild(trunk);
 
-      const badgeText = document.createElementNS(ns,'text');
-      badgeText.setAttribute('x', startX); badgeText.setAttribute('y', stubY + 4);
-      badgeText.setAttribute('text-anchor', 'middle');
-      badgeText.setAttribute('fill', 'var(--gold)');
-      badgeText.setAttribute('font-size', '11');
-      badgeText.setAttribute('font-family', 'IBM Plex Mono, monospace');
-      badgeText.style.pointerEvents = 'none';
-      badgeText.textContent = '+' + count;
-      svg.appendChild(badgeText);
-      return;
+      const bus = document.createElementNS(ns,'path');
+      bus.setAttribute('d', `M ${left} ${busY} L ${right} ${busY}`);
+      bus.setAttribute('stroke', 'var(--line)');
+      bus.setAttribute('stroke-width', '2.5');
+      bus.setAttribute('fill', 'none');
+      bus.setAttribute('stroke-linecap', 'round');
+      bus.style.pointerEvents = 'none';
+      svg.appendChild(bus);
+
+      children.forEach(c=>{
+        const d = `M ${c.x} ${busY} L ${c.x} ${c.y - PHOTO_R}`;
+
+        const hit = document.createElementNS(ns,'path');
+        hit.setAttribute('class','link');
+        hit.setAttribute('d', d);
+        hit.setAttribute('fill','none');
+        hit.setAttribute('stroke','transparent');
+        hit.setAttribute('stroke-width','14');
+        hit.addEventListener('click', ()=>removeCoupleChildLink(pa.id, pb.id, c.id));
+        svg.appendChild(hit);
+
+        const vis = document.createElementNS(ns,'path');
+        vis.setAttribute('d', d);
+        vis.setAttribute('stroke', 'var(--line)');
+        vis.setAttribute('stroke-width', '2.5');
+        vis.setAttribute('fill', 'none');
+        vis.setAttribute('stroke-linecap', 'round');
+        vis.style.pointerEvents = 'none';
+        svg.appendChild(vis);
+      });
     }
 
-    const childTop = children[0].y - PHOTO_R;
-    const busY = childTop - 30;
-    const xs = children.map(c=>c.x).concat([startX]);
-    const left = Math.min(...xs), right = Math.max(...xs);
+    // Dedicated collapse/expand control — always in the same spot on the
+    // trunk, regardless of state, so it's a single consistent affordance.
+    const badge = document.createElementNS(ns,'circle');
+    badge.setAttribute('cx', startX); badge.setAttribute('cy', badgeY);
+    badge.setAttribute('r', badgeR);
+    badge.setAttribute('fill', 'var(--panel-2)');
+    badge.setAttribute('stroke', 'var(--gold-dim)');
+    badge.setAttribute('stroke-width', '1.5');
+    badge.style.pointerEvents = 'none';
+    svg.appendChild(badge);
 
-    const trunkHit = document.createElementNS(ns,'path');
-    trunkHit.setAttribute('class','link');
-    trunkHit.setAttribute('d', `M ${startX} ${startY} L ${startX} ${busY}`);
-    trunkHit.setAttribute('stroke', 'transparent');
-    trunkHit.setAttribute('stroke-width', '14');
-    trunkHit.setAttribute('fill', 'none');
-    trunkHit.addEventListener('click', ()=>toggleCoupleCollapse(pa.id, pb.id));
-    svg.appendChild(trunkHit);
+    const badgeText = document.createElementNS(ns,'text');
+    badgeText.setAttribute('x', startX); badgeText.setAttribute('y', badgeY + 4);
+    badgeText.setAttribute('text-anchor', 'middle');
+    badgeText.setAttribute('fill', 'var(--gold)');
+    badgeText.setAttribute('font-size', isCollapsed ? '11' : '15');
+    badgeText.setAttribute('font-family', 'IBM Plex Mono, monospace');
+    badgeText.style.pointerEvents = 'none';
+    badgeText.textContent = isCollapsed ? ('+' + countBranchDescendants(children.map(c=>c.id))) : '−';
+    svg.appendChild(badgeText);
 
-    const trunk = document.createElementNS(ns,'path');
-    trunk.setAttribute('d', `M ${startX} ${startY} L ${startX} ${busY}`);
-    trunk.setAttribute('stroke', 'var(--line)');
-    trunk.setAttribute('stroke-width', '2.5');
-    trunk.setAttribute('fill', 'none');
-    trunk.setAttribute('stroke-linecap', 'round');
-    trunk.style.pointerEvents = 'none';
-    svg.appendChild(trunk);
-
-    const bus = document.createElementNS(ns,'path');
-    bus.setAttribute('d', `M ${left} ${busY} L ${right} ${busY}`);
-    bus.setAttribute('stroke', 'var(--line)');
-    bus.setAttribute('stroke-width', '2.5');
-    bus.setAttribute('fill', 'none');
-    bus.setAttribute('stroke-linecap', 'round');
-    bus.style.pointerEvents = 'none';
-    svg.appendChild(bus);
-
-    children.forEach(c=>{
-      const d = `M ${c.x} ${busY} L ${c.x} ${c.y - PHOTO_R}`;
-
-      const hit = document.createElementNS(ns,'path');
-      hit.setAttribute('class','link');
-      hit.setAttribute('d', d);
-      hit.setAttribute('fill','none');
-      hit.setAttribute('stroke','transparent');
-      hit.setAttribute('stroke-width','14');
-      hit.addEventListener('click', ()=>removeCoupleChildLink(pa.id, pb.id, c.id));
-      svg.appendChild(hit);
-
-      const vis = document.createElementNS(ns,'path');
-      vis.setAttribute('d', d);
-      vis.setAttribute('stroke', 'var(--line)');
-      vis.setAttribute('stroke-width', '2.5');
-      vis.setAttribute('fill', 'none');
-      vis.setAttribute('stroke-linecap', 'round');
-      vis.style.pointerEvents = 'none';
-      svg.appendChild(vis);
+    const badgeHit = document.createElementNS(ns,'circle');
+    badgeHit.setAttribute('cx', startX); badgeHit.setAttribute('cy', badgeY);
+    badgeHit.setAttribute('r', badgeR + 4);
+    badgeHit.setAttribute('fill', 'transparent');
+    badgeHit.style.pointerEvents = 'auto';
+    badgeHit.style.cursor = 'pointer';
+    badgeHit.addEventListener('pointerdown', (e)=>e.stopPropagation());
+    badgeHit.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      toggleCoupleCollapse(pa.id, pb.id);
     });
+    svg.appendChild(badgeHit);
   });
 
   state.people.forEach(p=>{
