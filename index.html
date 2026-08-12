@@ -720,12 +720,16 @@ function savePerson(){
     p.name = name; p.birth = birth; p.death = death;
     if(pendingPhoto) p.photo = pendingPhoto;
   } else {
-    const roots = state.people.filter(p=>p.parentIds.length===0);
-    const newX = roots.length ? Math.max(...roots.map(p=>p.x||300)) + 170 : 320;
+    const rect = scrollEl.getBoundingClientRect();
+    const viewCenterX = (rect.width/2 - panX) / scale;
+    const viewCenterY = (rect.height/2 - panY) / scale;
+    const generation = Math.max(0, Math.round((viewCenterY - SECTION_Y0) / SECTION_H));
+    const newId = uid();
+    const newX = arrangeChildX(newId, viewCenterX, generation);
     state.people.push({
-      id: uid(), name, birth, death,
+      id: newId, name, birth, death,
       photo: pendingPhoto,
-      generation: 0, x: newX, y: SECTION_Y0,
+      generation, x: newX, y: sectionY(generation),
       parentIds: [], spouseIds: []
     });
   }
