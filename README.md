@@ -24,14 +24,14 @@ Tudo fica salvo na nuvem e sincronizado em tempo real entre todos que estiverem 
 
 - [Visão geral](#-visão-geral)
 - [Funcionalidades](#-funcionalidades)
-- [Como usar](#-como-usar)
-- [Tecnologias](#-tecnologias)
+- [Como usar](#️-como-usar)
+- [Tecnologias](#️-tecnologias)
 - [Instalação e configuração](#-instalação-e-configuração)
-- [Modelo de dados](#-modelo-de-dados)
+- [Modelo de dados](#️-modelo-de-dados)
 - [Arquitetura do código](#-arquitetura-do-código)
 - [Segurança e privacidade](#-segurança-e-privacidade)
 - [Backup e recuperação](#-backup-e-recuperação)
-- [Próximos passos](#-próximos-passos)
+- [Próximos passos](#️-próximos-passos)
 
 ---
 
