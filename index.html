@@ -1646,8 +1646,8 @@ function drawConnections(){
       if(!parent) return;
       const startY = parent.y + PHOTO_R;
       const topY = p.y - PHOTO_R;
-      const midY = (startY + topY) / 2;
-      const d = `M ${parent.x} ${startY} C ${parent.x} ${midY}, ${p.x} ${midY}, ${p.x} ${topY}`;
+      const busY = topY - 30;
+      const d = `M ${parent.x} ${startY} L ${parent.x} ${busY} L ${p.x} ${busY} L ${p.x} ${topY}`;
 
       const hit = document.createElementNS(ns,'path');
       hit.setAttribute('class','link');
