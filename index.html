@@ -317,6 +317,7 @@ input[type=file]{display:none;}
 
   <div class="board-toolbar">
     <button class="fab" id="editModeBtn" title="Modo de edição">✎</button>
+    <button class="fab" id="relayoutBtn" title="Reorganizar layout">⟳</button>
     <button class="fab" id="helpBtn" title="Ajuda">?</button>
     <button class="fab" id="clearBtn" title="Limpar tudo">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -653,6 +654,11 @@ document.getElementById('confirmOkBtn').addEventListener('click', ()=>{
 
 /* ---------- Help modal ---------- */
 
+document.getElementById('relayoutBtn').addEventListener('click', ()=>{
+  layoutTree();
+  saveState();
+  render();
+});
 document.getElementById('helpBtn').addEventListener('click', ()=>{
   document.getElementById('helpOverlay').classList.add('open');
 });
@@ -1270,6 +1276,7 @@ function attachCardDrag(card, id){
       const level = Math.max(0, Math.round((p.y - SECTION_Y0) / SECTION_H));
       setLevel(p, level);
       declutterX();
+      layoutTree();
       saveState();
       render();
     } else {
@@ -1539,11 +1546,15 @@ function drawConnections(){
     } else {
       const childTop = children[0].y - PHOTO_R;
       const busY = childTop - 30;
-      const xs = children.map(c=>c.x).concat([startX]);
-      const left = Math.min(...xs), right = Math.max(...xs);
+      const childXs = children.map(c=>c.x);
+      const busLeft = Math.min(...childXs), busRight = Math.max(...childXs);
 
       const trunk = document.createElementNS(ns,'path');
-      trunk.setAttribute('d', `M ${startX} ${startY} L ${startX} ${busY}`);
+      const trunkConnX = Math.max(busLeft, Math.min(busRight, startX));
+      const trunkD = (startX >= busLeft && startX <= busRight)
+        ? `M ${startX} ${startY} L ${startX} ${busY}`
+        : `M ${startX} ${startY} L ${startX} ${busY} L ${trunkConnX} ${busY}`;
+      trunk.setAttribute('d', trunkD);
       trunk.setAttribute('stroke', 'var(--line)');
       trunk.setAttribute('stroke-width', '2.5');
       trunk.setAttribute('fill', 'none');
@@ -1552,7 +1563,7 @@ function drawConnections(){
       svg.appendChild(trunk);
 
       const bus = document.createElementNS(ns,'path');
-      bus.setAttribute('d', `M ${left} ${busY} L ${right} ${busY}`);
+      bus.setAttribute('d', `M ${busLeft} ${busY} L ${busRight} ${busY}`);
       bus.setAttribute('stroke', 'var(--line)');
       bus.setAttribute('stroke-width', '2.5');
       bus.setAttribute('fill', 'none');
@@ -1912,3 +1923,4 @@ applyTransform();
 </script>
 </body>
 </html>
+
