@@ -297,6 +297,9 @@ input[type=file]{display:none;}
   .photo,.photo-wrap{width:70px;height:70px;}
 }
 </style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
+<meta name="theme-color" content="#241726">
 </head>
 <body>
 <div class="wrap">
@@ -413,6 +416,7 @@ input[type=file]{display:none;}
       <p><strong>Remover ligação:</strong> clique em qualquer linha de conexão de pais/filhos.</p>
       <p><strong>Casal:</strong> clique na linha entre um casal para marcar como separados (linha tracejada) ou casados novamente, além de poder remover a ligação.</p>
       <p style="border-top:1px solid rgba(241,233,211,.12);padding-top:12px;margin-top:14px;"><strong>Backup:</strong> baixe uma cópia local da árvore de vez em quando — protege seus dados caso o salvamento automático falhe.</p>
+      <p class="app-links" data-app-links style="text-align:left"></p>
     </div>
     <div class="modal-actions" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
       <div style="display:flex;gap:8px;">
@@ -1921,6 +1925,7 @@ document.getElementById('minimap').addEventListener('pointerdown', (e)=>{
 loadState();
 applyTransform();
 </script>
+<script src="pwa.js" defer></script>
 </body>
 </html>
 
